@@ -156,20 +156,9 @@ jobs:
             RESP=$(cat "$tmpf" 2>/dev/null || printf '{}')
             rm -f "$tmpf"
             # 解析 ret（非 JSON 取 0）
-            RET=$(python3 -c 'import json,sys; s=sys.stdin.read();
-import re
-print((json.loads(s).get("ret",0)) if s.strip().startswith("{") else 0)' <<<"$RESP")
+            RET=$(python3 -c 'import json,sys; s=sys.stdin.read(); print(json.loads(s).get("ret",0) if s.strip().startswith("{") else 0)' <<<"$RESP")
             # 解析 msg（非 JSON 取前 120 可见字符）
-            MSG=$(python3 -c 'import json,sys,re; s=sys.stdin.read();
-def msg_of(s):
-    if s.strip().startswith("{"):
-        try:
-            return str(json.loads(s).get("msg",""))
-        except Exception:
-            return ""
-    m=re.sub(r"\s+"," ",s).strip()
-    return m[:120]
-print(msg_of(s).replace("\n"," ").strip())' <<<"$RESP")
+            MSG=$(python3 -c 'import json,sys,re; s=sys.stdin.read(); isj=s.strip().startswith("{"); msg=str(json.loads(s).get("msg","")) if isj else re.sub(r"\s+"," ",s).strip()[:120]; print(msg.replace("\n"," ").strip())' <<<"$RESP")
             MSG=$(sanitize_msg "$MSG")
             # 成功判断：ret==1 或提示已签到
             if [ "$RET" = "1" ] || printf '%s' "$MSG" | grep -Eq '已签到|已经签到|似乎已经签到|checked'; then
