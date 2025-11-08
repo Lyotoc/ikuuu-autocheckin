@@ -93,6 +93,7 @@ jobs:
         env:
           IKUUU_COOKIES: ${{ secrets.IKUUU_COOKIES }}
           IKUUU_COOKIE: ${{ secrets.IKUUU_COOKIE }}
+          IKUUU_BASE_URL: ${{ vars.IKUUU_BASE_URL }}
           RETRY: ${{ vars.RETRY }}
           RETRY_DELAY: ${{ vars.RETRY_DELAY }}
           CONNECT_TIMEOUT: ${{ vars.CONNECT_TIMEOUT }}
@@ -100,6 +101,7 @@ jobs:
         run: |
           set -euo pipefail
           RETRY="${RETRY:-2}"; RETRY_DELAY="${RETRY_DELAY:-2}"; CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-10}"; MAX_TIME="${MAX_TIME:-30}"
+          BASE="${IKUUU_BASE_URL:-https://ikuuu.de}"; BASE="${BASE%/}"
           if [ -n "${IKUUU_COOKIES:-}" ]; then COOKIES=$(printf '%s\n' "$IKUUU_COOKIES");
           elif [ -n "${IKUUU_COOKIE:-}" ]; then COOKIES=$(printf '%s\n' "$IKUUU_COOKIE");
           else echo "overall_status=failed" >> "$GITHUB_OUTPUT"; echo "summary=No cookie configured" >> "$GITHUB_OUTPUT"; exit 0; fi
@@ -126,25 +128,58 @@ jobs:
             printf '%s' "$out"
           }
           check_one() {
-            local ck="$1" idx="$2"
-            RESP=$(curl -sS 'https://ikuuu.de/user/checkin' \
+            local ck="$1" idx="$2" http='' curl_code=0 RESP MSG RET tmpf
+            tmpf=$(mktemp)
+            # 记录 HTTP 状态码与 curl 返回码，并将响应体写入临时文件
+            set +e
+            http=$(curl -sS "${BASE}/user/checkin" \
               -X POST \
               -H 'accept: application/json, text/javascript, */*; q=0.01' \
               -H 'x-requested-with: XMLHttpRequest' \
-              -H 'origin: https://ikuuu.de' \
-              -H 'referer: https://ikuuu.de/user' \
+              -H "origin: ${BASE}" \
+              -H "referer: ${BASE}/user" \
               -H 'user-agent: Mozilla/5.0' \
               --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" \
               --retry "$RETRY" --retry-delay "$RETRY_DELAY" --retry-all-errors \
-              -b "$ck" || echo '{}')
-            RET=$(python3 -c "import json,sys; s=sys.stdin.read(); d=json.loads(s) if s.strip().startswith('{') else {}; print(d.get('ret',0))" <<<"$RESP")
-            MSG=$(python3 -c "import json,sys; s=sys.stdin.read(); d=json.loads(s) if s.strip().startswith('{') else {}; print(str(d.get('msg','')).replace('\\n',' ').strip())" <<<"$RESP")
+              -b "$ck" -o "$tmpf" -w '%{http_code}')
+            curl_code=$?
+            set -e
+            RESP=$(cat "$tmpf" 2>/dev/null || printf '{}')
+            rm -f "$tmpf"
+            # 解析 ret 与 msg；非 JSON 时提取前 120 个可见字符作为提示
+            RET=$(python3 - <<'PY'
+import json,sys
+s=sys.stdin.read()
+if s.strip().startswith('{'):
+    try:
+        print(json.loads(s).get('ret',0))
+    except Exception:
+        print(0)
+else:
+    print(0)
+PY
+            <<<"$RESP")
+            MSG=$(python3 - <<'PY'
+import json,sys,re
+s=sys.stdin.read()
+msg=''
+if s.strip().startswith('{'):
+    try:
+        msg=str(json.loads(s).get('msg',''))
+    except Exception:
+        msg=''
+else:
+    m=re.sub(r'\s+',' ',s).strip()
+    msg=m[:120]
+print(msg.replace('\n',' ').strip())
+PY
+            <<<"$RESP")
             MSG=$(sanitize_msg "$MSG")
-            # 将“已签到”类提示视作成功，避免错误标红
+            # 成功判断：ret==1 或提示已签到
             if [ "$RET" = "1" ] || printf '%s' "$MSG" | grep -Eq '已签到|已经签到|似乎已经签到|checked'; then
               OK=$((OK+1)); DETAILS+=("[#${idx}] OK ${MSG}")
             else
-              FAIL=$((FAIL+1)); DETAILS+=("[#${idx}] FAIL ret=${RET} ${MSG}")
+              FAIL=$((FAIL+1)); DETAILS+=("[#${idx}] FAIL ret=${RET} http=${http} curl=${curl_code} ${MSG}")
             fi
           }
           i=0; for ck in "${COOKIE_LINES[@]}"; do i=$((i+1)); check_one "$ck" "$i"; done

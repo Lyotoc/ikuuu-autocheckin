@@ -22,12 +22,12 @@
 2. 配置 Cookie（二选一）
    - 单账号：新增 Secret `IKUUU_COOKIE`（完整 Cookie 字符串）
    - 多账号：新增 Secret `IKUUU_COOKIES`（见下文 Cookie 填写规范）
-3. 可选：配置运行变量 `RUN_TZ`, `RUN_AT`, `RUN_WINDOW_MINUTES`, `RETRY`, `RETRY_DELAY`, `CONNECT_TIMEOUT`, `MAX_TIME`（建议使用 Actions -> Variables 保存）
+3. 可选：配置运行变量 `IKUUU_BASE_URL`, `RUN_TZ`, `RUN_AT`, `RUN_WINDOW_MINUTES`, `RETRY`, `RETRY_DELAY`, `CONNECT_TIMEOUT`, `MAX_TIME`（建议使用 Actions -> Variables 保存）
 4. 手动触发：Actions -> Ikuuu Checkin -> Run workflow
 
 ## 如何获取 Cookie
-1. 登录 https://ikuuu.de，打开浏览器开发者工具（F12）-> Network
-2. 访问或刷新 https://ikuuu.de/user，在该域名请求的 Request Headers 中复制 Cookie
+1. 登录你设置的 `IKUUU_BASE_URL`（默认 https://ikuuu.de），打开浏览器开发者工具（F12）-> Network
+2. 访问或刷新 `${IKUUU_BASE_URL}/user`，在该域名请求的 Request Headers 中复制 Cookie
 3. 常见键：`lang`, `uid`, `email`, `key`, `ip`, `expire_in`
 
 ## Cookie 填写规范
@@ -71,9 +71,11 @@
 | `RETRY_DELAY` | 2 | curl 重试间隔秒 |
 | `CONNECT_TIMEOUT` | 10 | 连接超时秒 |
 | `MAX_TIME` | 30 | 请求最大时长秒 |
+| `IKUUU_BASE_URL` | https://ikuuu.de | 请求基础域名（不含末尾斜杠） |
 
 ### 变量含义与取值建议
 - `RUN_TZ`：IANA 时区名称，用于计算“今天”和目标时间，并生成每日缓存键。示例：`Asia/Shanghai`、`UTC`、`America/Los_Angeles`。留空时默认 `Asia/Shanghai`。
+- `IKUUU_BASE_URL`：签到请求的基础域名/协议，默认 `https://ikuuu.de`。若站点迁移或需要镜像域名，修改此变量即可；Cookie 也需从同一域名获取。
 - `RUN_AT`：每日目标时间（24 小时制 `HH:MM`）。例如 `08:15`。仅当“定时触发”且当前时刻落在窗口内时才执行；手动触发不受此限制。
 - `RUN_WINDOW_MINUTES`：窗口大小（分钟，整数）。表示允许在目标时间前后各 N 分钟内运行；跨午夜会取最小时间差（如 23:59 与 00:05 视为相差 6 分钟）。建议 5～20 分钟。
 - `RETRY`：网络重试次数（curl 的 `--retry`，启用 `--retry-all-errors`）。设为 0 表示不重试；次数过大将拉长运行时间。建议 2～5 次。

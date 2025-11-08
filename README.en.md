@@ -21,7 +21,7 @@ This README uses ASCII punctuation and UTF‑8 encoding.
 2. Secrets:
    - Single account: `IKUUU_COOKIE`
    - Multiple accounts: `IKUUU_COOKIES`
-3. Variables (optional): `RUN_TZ`, `RUN_AT`, `RUN_WINDOW_MINUTES`, `RETRY`, `RETRY_DELAY`, `CONNECT_TIMEOUT`, `MAX_TIME`
+3. Variables (optional): `IKUUU_BASE_URL`, `RUN_TZ`, `RUN_AT`, `RUN_WINDOW_MINUTES`, `RETRY`, `RETRY_DELAY`, `CONNECT_TIMEOUT`, `MAX_TIME`
 4. Manual run: Actions -> Ikuuu Checkin -> Run workflow
 
 ## Cookie format
@@ -56,6 +56,7 @@ lang=zh-cn; uid=2222222; email=user2%40example.com; key=yyyyyyyy; ip=bbbbbbbb; e
 | `RETRY_DELAY` | 2 | seconds |
 | `CONNECT_TIMEOUT` | 10 | seconds |
 | `MAX_TIME` | 30 | seconds |
+| `IKUUU_BASE_URL` | https://ikuuu.de | base URL for requests (no trailing slash) |
 
 ### Details and guidance
 - `RUN_TZ`: IANA timezone name used to compute “today” and the target time, also part of the daily cache key. Examples: `Asia/Shanghai`, `UTC`, `America/Los_Angeles`. Defaults to `Asia/Shanghai`.
@@ -65,8 +66,10 @@ lang=zh-cn; uid=2222222; email=user2%40example.com; key=yyyyyyyy; ip=bbbbbbbb; e
 - `RETRY_DELAY`: Seconds between retries (`curl --retry-delay`). Suggested 2–5 seconds.
 - `CONNECT_TIMEOUT`: Seconds for connect phase (`curl --connect-timeout`), mainly TCP/TLS handshake. Increase to 15–30 for slow networks.
 - `MAX_TIME`: Per‑request total timeout (`curl --max-time`) including connect and transfer. The attempt is aborted when reaching this limit; usually used together with `RETRY`. Suggested 20–60.
+- `IKUUU_BASE_URL`: Base site for check‑in requests. Defaults to `https://ikuuu.de`. If the service migrates to another domain or you use a mirror, change this variable accordingly; cookies must be obtained from the same domain.
 
 Where to configure: Repository Settings → Secrets and variables → Actions → Variables (organization‑level variables also work).
+Note: obtain cookies from the same domain as `IKUUU_BASE_URL` (open `${IKUUU_BASE_URL}/user` and copy Cookie from Request Headers).
 
 ## Logic
 - Schedule: `15 0 * * *` (UTC)
