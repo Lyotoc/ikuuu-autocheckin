@@ -72,6 +72,17 @@
 | `CONNECT_TIMEOUT` | 10 | 连接超时秒 |
 | `MAX_TIME` | 30 | 请求最大时长秒 |
 
+### 变量含义与取值建议
+- `RUN_TZ`：IANA 时区名称，用于计算“今天”和目标时间，并生成每日缓存键。示例：`Asia/Shanghai`、`UTC`、`America/Los_Angeles`。留空时默认 `Asia/Shanghai`。
+- `RUN_AT`：每日目标时间（24 小时制 `HH:MM`）。例如 `08:15`。仅当“定时触发”且当前时刻落在窗口内时才执行；手动触发不受此限制。
+- `RUN_WINDOW_MINUTES`：窗口大小（分钟，整数）。表示允许在目标时间前后各 N 分钟内运行；跨午夜会取最小时间差（如 23:59 与 00:05 视为相差 6 分钟）。建议 5～20 分钟。
+- `RETRY`：网络重试次数（curl 的 `--retry`，启用 `--retry-all-errors`）。设为 0 表示不重试；次数过大将拉长运行时间。建议 2～5 次。
+- `RETRY_DELAY`：两次重试之间的等待秒数（curl 的 `--retry-delay`）。建议 2～5 秒。
+- `CONNECT_TIMEOUT`：连接超时秒数（curl 的 `--connect-timeout`），主要覆盖 TCP/TLS 连接阶段。网络较慢时可增大到 15～30。
+- `MAX_TIME`：单次请求的总超时秒数（curl 的 `--max-time`），包含连接与传输。到达上限会中止该次请求；通常与 `RETRY` 搭配使用。建议 20～60。
+
+配置位置：仓库 Settings → Secrets and variables → Actions → Variables（也可在组织级变量中配置）。
+
 ## 运行逻辑
 - 定时：*/15 * * * *（UTC）
 - 时间窗口：命中 RUN_AT ± RUN_WINDOW_MINUTES 且当日未执行才真正签到
@@ -81,4 +92,3 @@
 
 ## 免责声明
 本文档与示例仅用于学习与技术研究。请勿用于任何违反网站服务条款或当地法律法规的用途。由此产生的风险与后果由使用者自行承担。示例中的账号、邮箱、密钥均为占位符。
-

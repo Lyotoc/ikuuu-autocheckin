@@ -57,6 +57,17 @@ lang=zh-cn; uid=2222222; email=user2%40example.com; key=yyyyyyyy; ip=bbbbbbbb; e
 | `CONNECT_TIMEOUT` | 10 | seconds |
 | `MAX_TIME` | 30 | seconds |
 
+### Details and guidance
+- `RUN_TZ`: IANA timezone name used to compute “today” and the target time, also part of the daily cache key. Examples: `Asia/Shanghai`, `UTC`, `America/Los_Angeles`. Defaults to `Asia/Shanghai`.
+- `RUN_AT`: Daily target time in 24‑hour `HH:MM` (e.g. `08:15`). The job will actually run only when the current time falls into the window. Manual runs ignore this restriction.
+- `RUN_WINDOW_MINUTES`: Window size in minutes (integer). It allows running within ±N minutes around `RUN_AT`. The calculation wraps across midnight (e.g. 23:59 vs 00:05 is 6 minutes). Suggested 5–20.
+- `RETRY`: Number of network retries (`curl --retry` with `--retry-all-errors`). Set 0 to disable. Too many retries increases runtime. Suggested 2–5.
+- `RETRY_DELAY`: Seconds between retries (`curl --retry-delay`). Suggested 2–5 seconds.
+- `CONNECT_TIMEOUT`: Seconds for connect phase (`curl --connect-timeout`), mainly TCP/TLS handshake. Increase to 15–30 for slow networks.
+- `MAX_TIME`: Per‑request total timeout (`curl --max-time`) including connect and transfer. The attempt is aborted when reaching this limit; usually used together with `RETRY`. Suggested 20–60.
+
+Where to configure: Repository Settings → Secrets and variables → Actions → Variables (organization‑level variables also work).
+
 ## Logic
 - Schedule: `*/15 * * * *` (UTC)
 - Run only in window and once per day (cache)
@@ -65,4 +76,3 @@ lang=zh-cn; uid=2222222; email=user2%40example.com; key=yyyyyyyy; ip=bbbbbbbb; e
 
 ## Disclaimer
 This project and examples are for study only. Do not use in violation of ToS or laws. All examples use placeholders.
-
