@@ -1,4 +1,4 @@
-name: Purge Actions Runs
+﻿name: Purge Actions Runs
 
 on:
   workflow_dispatch:
@@ -18,11 +18,13 @@ jobs:
     steps:
       - name: Delete all workflow runs in this repo (except this run)
         uses: actions/github-script@v7
+        env:
+          CONFIRM: ${{ inputs.confirm }}
         with:
           script: |
             const { owner, repo } = context.repo;
             const selfRunId = Number(process.env.GITHUB_RUN_ID);
-            const confirm = core.getInput('confirm');
+            const confirm = (process.env.CONFIRM || 'DELETE').toUpperCase();
             if (confirm !== 'DELETE') {
               core.setFailed('确认值不是 DELETE，已取消。');
               return;
@@ -55,3 +57,4 @@ jobs:
         run: |
           echo "清理完成：若想不留任何运行记录，可在本次运行结束后，手动删除这一条运行记录；" \
                "随后删除 .github/workflows/purge-actions-runs.yml 文件。"
+
