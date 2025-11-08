@@ -69,7 +69,7 @@ lang=zh-cn; uid=2222222; email=user2%40example.com; key=yyyyyyyy; ip=bbbbbbbb; e
 Where to configure: Repository Settings → Secrets and variables → Actions → Variables (organization‑level variables also work).
 
 ## Logic
-- Schedule: `*/15 * * * *` (UTC)
+- Schedule: `15 0 * * *` (UTC)
 - Run only in window and once per day (cache)
 - Success: `ret == 1`, or `ret == 0` with message like "already checked in"
 - On failure: job marked failed; details listed in summary

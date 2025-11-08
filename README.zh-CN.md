@@ -84,7 +84,7 @@
 配置位置：仓库 Settings → Secrets and variables → Actions → Variables（也可在组织级变量中配置）。
 
 ## 运行逻辑
-- 定时：*/15 * * * *（UTC）
+- 定时：00:15 * * * *（UTC）
 - 时间窗口：命中 RUN_AT ± RUN_WINDOW_MINUTES 且当日未执行才真正签到
 - 当日仅执行一次：使用 actions/cache 缓存 `.ikuuu-cache/stamp` 当日标记
 - 成功判定：`ret == 1` 视为成功；或 `ret == 0` 且 `msg` 含“已签到/已经签到/似乎已签到”等提示亦视为成功
