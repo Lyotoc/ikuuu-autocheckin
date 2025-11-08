@@ -18,15 +18,24 @@ jobs:
   checkin:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      RUN_TZ: ${{ vars.RUN_TZ || 'Asia/Shanghai' }}
+      RUN_AT: ${{ vars.RUN_AT || '08:15' }}
+      RUN_WINDOW_MINUTES: ${{ vars.RUN_WINDOW_MINUTES || '10' }}
+      RETRY: ${{ vars.RETRY || '2' }}
+      RETRY_DELAY: ${{ vars.RETRY_DELAY || '2' }}
+      CONNECT_TIMEOUT: ${{ vars.CONNECT_TIMEOUT || '10' }}
+      MAX_TIME: ${{ vars.MAX_TIME || '30' }}
+      IKUUU_BASE_URL: ${{ vars.IKUUU_BASE_URL || 'https://ikuuu.de' }}
     steps:
       - name: Prepare time and window
         id: prep
         shell: bash
         run: |
           set -euo pipefail
-          RUN_TZ="${{ vars.RUN_TZ }}"; [ -n "$RUN_TZ" ] || RUN_TZ='Asia/Shanghai'
-          RUN_AT="${{ vars.RUN_AT }}"; [ -n "$RUN_AT" ] || RUN_AT='08:15'
-          RUN_WINDOW_MINUTES="${{ vars.RUN_WINDOW_MINUTES }}"; [ -n "$RUN_WINDOW_MINUTES" ] || RUN_WINDOW_MINUTES='10'
+          RUN_TZ="${RUN_TZ:-Asia/Shanghai}"
+          RUN_AT="${RUN_AT:-08:15}"
+          RUN_WINDOW_MINUTES="${RUN_WINDOW_MINUTES:-10}"
           TODAY=$(TZ="$RUN_TZ" date +%F)
           NOW=$(TZ="$RUN_TZ" date +%H:%M)
           echo "tz=$RUN_TZ" >> "$GITHUB_OUTPUT"

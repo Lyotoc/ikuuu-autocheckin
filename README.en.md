@@ -47,6 +47,7 @@ lang=zh-cn; uid=2222222; email=user2%40example.com; key=yyyyyyyy; ip=bbbbbbbb; e
 | `DISCORD_WEBHOOK` | no | Discord |
 
 ## Variables
+> Note: All variables below have built‑in defaults in the workflow. You can run without setting them; configure Actions Variables only if you need to override.
 | name | default | note |
 | - | - | - |
 | `RUN_TZ` | Asia/Shanghai | timezone |

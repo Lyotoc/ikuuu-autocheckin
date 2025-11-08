@@ -62,6 +62,7 @@
 | `DISCORD_WEBHOOK` | 否 | Discord 通知 | Webhook URL |
 
 ## Actions Variables（运行变量）
+> 说明：下表所有变量均已在工作流内置了默认值，即使你没有在 Actions Variables 中配置，也可以运行；如需自定义可在变量里覆盖默认值。
 | 名称 | 默认值 | 说明 |
 | - | - | - |
 | `RUN_TZ` | Asia/Shanghai | 运行时区 |
