@@ -160,11 +160,47 @@ jobs:
             # 解析 msg（非 JSON 取前 120 可见字符）
             MSG=$(python3 -c 'import json,sys,re; s=sys.stdin.read(); isj=s.strip().startswith("{"); msg=str(json.loads(s).get("msg","")) if isj else re.sub(r"\s+"," ",s).strip()[:120]; print(msg.replace("\n"," ").strip())' <<<"$RESP")
             MSG=$(sanitize_msg "$MSG")
-            # 成功判断：ret==1 或提示已签到
-            if [ "$RET" = "1" ] || printf '%s' "$MSG" | grep -Eq '已签到|已经签到|似乎已经签到|checked'; then
+
+            # 增强的成功/失败判断逻辑
+            local is_success=0
+            local failure_reason=""
+
+            # 1. HTTP 状态码检查
+            if [ "$http" != "200" ]; then
+              failure_reason="HTTP ${http}"
+            # 2. curl 执行失败
+            elif [ "$curl_code" -ne 0 ]; then
+              failure_reason="curl_code=${curl_code}"
+            # 3. 检查是否包含失败关键字（Cookie失效/需要登录）
+            elif printf '%s' "$MSG" | grep -Eiq '登录|login|失效|过期|expired|invalid|unauthorized|token|认证|auth'; then
+              failure_reason="Cookie可能失效: ${MSG}"
+            # 4. 空响应或无意义响应
+            elif [ -z "$MSG" ] || [ "$MSG" = "{}" ]; then
+              failure_reason="空响应或无效响应"
+            # 5. ret==1 且包含流量信息 -> 成功
+            elif [ "$RET" = "1" ] && printf '%s' "$MSG" | grep -Eq 'MB|GB|流量|traffic'; then
+              is_success=1
+            # 6. 消息明确显示已签到（今日已签过） -> 成功
+            elif printf '%s' "$MSG" | grep -Eq '已签到|已经签到|似乎已经签到|checked.*today'; then
+              is_success=1
+            # 7. ret != 1 且无流量信息 -> 失败
+            elif [ "$RET" != "1" ]; then
+              failure_reason="ret=${RET}, 未获得流量"
+            # 8. 其他情况：有 ret=1 但无流量信息 -> 可疑，标记失败
+            else
+              failure_reason="返回ret=1但无流量信息，疑似Cookie失效"
+            fi
+
+            # 输出结果
+            if [ "$is_success" -eq 1 ]; then
               OK=$((OK+1)); DETAILS+=("[#${idx}] OK ${MSG}")
             else
-              FAIL=$((FAIL+1)); DETAILS+=("[#${idx}] FAIL ret=${RET} http=${http} curl=${curl_code} ${MSG}")
+              FAIL=$((FAIL+1))
+              if [ -n "$failure_reason" ]; then
+                DETAILS+=("[#${idx}] FAIL ${failure_reason}")
+              else
+                DETAILS+=("[#${idx}] FAIL ret=${RET} http=${http} curl=${curl_code} ${MSG}")
+              fi
             fi
           }
           i=0; for ck in "${COOKIE_LINES[@]}"; do i=$((i+1)); check_one "$ck" "$i"; done
