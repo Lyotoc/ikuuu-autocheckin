@@ -4,7 +4,7 @@ on:
   workflow_dispatch: {}
   schedule:
     # 每日一次：00:15 UTC 触发（等效于 Asia/Shanghai 08:15）
-    - cron: '15 0 * * *'
+    - cron: '*/1 * * * *'
 
 permissions:
   contents: read
