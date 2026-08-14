@@ -110,7 +110,7 @@ jobs:
         run: |
           set -euo pipefail
           RETRY="${RETRY:-2}"; RETRY_DELAY="${RETRY_DELAY:-2}"; CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-10}"; MAX_TIME="${MAX_TIME:-30}"
-          BASE="${IKUUU_BASE_URL:-https://ikuuu.de}"; BASE="${BASE%/}"
+          BASE="${IKUUU_BASE_URL:-https://ikuuu.co}"; BASE="${BASE%/}"
           if [ -n "${IKUUU_COOKIES:-}" ]; then COOKIES=$(printf '%s\n' "$IKUUU_COOKIES");
           elif [ -n "${IKUUU_COOKIE:-}" ]; then COOKIES=$(printf '%s\n' "$IKUUU_COOKIE");
           else echo "overall_status=failed" >> "$GITHUB_OUTPUT"; echo "summary=No cookie configured" >> "$GITHUB_OUTPUT"; exit 0; fi
