@@ -1,4 +1,101 @@
-- name: Run checkin
+name: Ikuuu Checkin
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # 每日一次：00:32 UTC 触发（等效于 Asia/Shanghai 08:32）
+    - cron: '32 0 * * *'
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: ikuuu-checkin
+  cancel-in-progress: true
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RUN_TZ: ${{ vars.RUN_TZ || 'Asia/Shanghai' }}
+      RUN_AT: ${{ vars.RUN_AT || '08:15' }}
+      RUN_WINDOW_MINUTES: ${{ vars.RUN_WINDOW_MINUTES || '10' }}
+      RETRY: ${{ vars.RETRY || '2' }}
+      RETRY_DELAY: ${{ vars.RETRY_DELAY || '2' }}
+      CONNECT_TIMEOUT: ${{ vars.CONNECT_TIMEOUT || '10' }}
+      MAX_TIME: ${{ vars.MAX_TIME || '30' }}
+      IKUUU_BASE_URL: ${{ vars.IKUUU_BASE_URL || 'https://ikuuu.de' }}
+    steps:
+      - name: Prepare time and window
+        id: prep
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_TZ="${RUN_TZ:-Asia/Shanghai}"
+          RUN_AT="${RUN_AT:-08:15}"
+          RUN_WINDOW_MINUTES="${RUN_WINDOW_MINUTES:-10}"
+          TODAY=$(TZ="$RUN_TZ" date +%F)
+          NOW=$(TZ="$RUN_TZ" date +%H:%M)
+          echo "tz=$RUN_TZ" >> "$GITHUB_OUTPUT"
+          echo "today=$TODAY" >> "$GITHUB_OUTPUT"
+          echo "now=$NOW" >> "$GITHUB_OUTPUT"
+          echo "run_at=$RUN_AT" >> "$GITHUB_OUTPUT"
+          echo "window=$RUN_WINDOW_MINUTES" >> "$GITHUB_OUTPUT"
+
+      - name: Restore daily cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: .ikuuu-cache/stamp
+          key: ikuuu-checkin-${{ steps.prep.outputs.tz }}-${{ steps.prep.outputs.today }}
+
+      - name: Decide to run
+        id: decision
+        shell: bash
+        env:
+          NOW: ${{ steps.prep.outputs.now }}
+          RUN_AT: ${{ steps.prep.outputs.run_at }}
+          WINDOW: ${{ steps.prep.outputs.window }}
+          CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "should_run=yes" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "$CACHE_HIT" = "true" ]; then
+            echo "should_run=no" >> "$GITHUB_OUTPUT"; exit 0; fi
+          to_min(){ IFS=: read -r h m <<<"$1"; echo $((10#$h*60 + 10#$m)); }
+          diff=$(( $(to_min "$NOW") - $(to_min "$RUN_AT") )); [ $diff -lt 0 ] && diff=$((-diff))
+          alt=$((1440 - diff)); [ $alt -lt $diff ] && diff=$alt
+          if [ "$diff" -le "$WINDOW" ]; then echo "should_run=yes" >> "$GITHUB_OUTPUT"; else echo "should_run=no" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Write summary when skipped
+        if: ${{ steps.decision.outputs.should_run != 'yes' }}
+        shell: bash
+        env:
+          TZ_LOCAL: ${{ steps.prep.outputs.tz }}
+          TODAY: ${{ steps.prep.outputs.today }}
+          NOW: ${{ steps.prep.outputs.now }}
+          RUN_AT: ${{ steps.prep.outputs.run_at }}
+          WINDOW: ${{ steps.prep.outputs.window }}
+          CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          if [ "${CACHE_HIT}" = "true" ]; then
+            REASON="skipped (cache-hit: already executed today)"
+          else
+            REASON="skipped (outside window: now=${NOW}, target=${RUN_AT} ±${WINDOW}min)"
+          fi
+          {
+            echo "# Ikuuu Checkin"
+            echo "- status: ${REASON}"
+            echo "- tz: ${TZ_LOCAL}"
+            echo "- today: ${TODAY}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run checkin
         if: ${{ steps.decision.outputs.should_run == 'yes' }}
         id: run
         shell: bash
@@ -14,130 +111,19 @@
           set -euo pipefail
           RETRY="${RETRY:-2}"; RETRY_DELAY="${RETRY_DELAY:-2}"; CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-10}"; MAX_TIME="${MAX_TIME:-30}"
           BASE="${IKUUU_BASE_URL:-https://ikuuu.co}"; BASE="${BASE%/}"
-          if [ -n "${IKUUU_COOKIES:-}" ]; then COOKIES=$(printf '\%s\n' "$IKUUU_COOKIES");
-          elif [ -n "${IKUUU_COOKIE:-}" ]; then COOKIES=$(printf '\%s\n' "$IKUUU_COOKIE");
-          else echo "overall_status=failed" >> "$GITHUB_OUTPUT"; echo "summary=No cookie configured" >> "$GITHUB_OUTPUT"; exit 0; fi
-
-          [ -n "${IKUUU_COOKIE:-}" ] && echo "::add-mask::${IKUUU_COOKIE}"
-          [ -n "${IKUUU_COOKIES:-}" ] && echo "::add-mask::${IKUUU_COOKIES}"
-
-          normalized=$(printf '\%s\n' "$COOKIES" \
-            | tr -d '\r' \
-            | awk 'BEGIN{RS=""; ORS="\n"} {gsub(/\n+/, " "); gsub(/[ \t]+/, " "); print}')
-          mapfile -t COOKIE_LINES < <(printf '%s\n' "$normalized" \vert{} sed '/^[[:space:]]*$/d')
-          OK=0; FAIL=0; DETAILS=()
-
-          sanitize_msg() {
-            local in="$1" out
-            out=$(printf '\%s' "$in" | sed -E \
-              -e 's/[A-Za-z0-9._%+-]+%40[A-Za-z0-9.-]+\.[A-Za-z]{2,}/***%40***/g' \
-              -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/***@***/g' \
-              -e 's/([0-9]{1,3}\.){3}[0-9]{1,3}/***.***.***.***/g' \
-              -e 's/[A-Fa-f0-9]{32,}/[MASKED_HEX]/g' \
-              -e 's/uid=[0-9]+/uid=****/g' \
-              -e 's/key=[^ ;]+/key=****/g' \
-              -e 's/ip=[^ ;]+/ip=****/g' \
-              -e 's/expire_in=[0-9]+/expire_in=****/g')
-            printf '%s' "$out"
-          }
-
-          # 提取 /user 页面中的流量统计信息
-          fetch_traffic_info() {
-            local ck="$1"
-            local html
-            html=$(curl -sS "${BASE}/user" \
-              -H 'user-agent: Mozilla/5.0' \
-              --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" \
-              -b "$ck" 2>/dev/null || printf '')
-            
-            python3 -c '
-import sys, re
-
-html = sys.stdin.read()
-if not html:
-    print("未知")
-    sys.exit(0)
-
-# 匹配常见的 SSPanel 流量模版文本（如：今日已用 / 剩余流量 / 账户总流量 等）
-# 模式1: 剩余: xx GB / 总计: xx GB
-total_match = re.search(r"(?:等级过期|总流量|等级流量|账户流量)[^<0-9]*([0-9.]+\s*(?:MB|GB|TB|KB))", html, re.I)
-remain_match = re.search(r"(?:剩余流量|剩余)[^<0-9]*([0-9.]+\s*(?:MB|GB|TB|KB))", html, re.I)
-used_match = re.search(r"(?:已用流量|今日已用|已用)[^<0-9]*([0-9.]+\s*(?:MB|GB|TB|KB))", html, re.I)
-
-res = []
-if remain_match:
-    res.append(f"剩余: {remain_match.group(1)}")
-if total_match:
-    res.append(f"总计: {total_match.group(1)}")
-elif used_match:
-    res.append(f"已用: {used_match.group(1)}")
-
-print(" | ".join(res) if res else "获取成功(格式未匹配)")
-' <<<"$html"
-          }
-
-          check_one() {
-            local ck="$1" idx="$2" http='' curl_code=0 RESP MSG RET tmpf
-            
-            # 1. 签到前获取当前流量
-            local traffic_before
-            traffic_before=$(fetch_traffic_info "$ck")
-
-            tmpf=$(mktemp)
-            set +e
-            http=$(curl -sS "${BASE}/user/checkin" \
-              -X POST \
-              -H 'accept: application/json, text/javascript, */*; q=0.01' \
-              -H 'x-requested-with: XMLHttpRequest' \
-              -H "origin: ${BASE}" \
-              -H "referer: ${BASE}/user" \
-              -H 'user-agent: Mozilla/5.0' \
-              --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" \
-              --retry "$RETRY" --retry-delay "$RETRY_DELAY" --retry-all-errors \
-              -b "$ck" -o "$tmpf" -w '%{http_code}')
-            curl_code=$?
-            set -e
-            RESP=$(cat "$tmpf" 2>/dev/null || printf '{}')
-            rm -f "$tmpf"
-
-            RET=$(python3 -c 'import json,sys; s=sys.stdin.read(); print(json.loads(s).get("ret",0) if s.strip().startswith("{") else 0)' <<<"$RESP")
-            MSG=$(python3 -c 'import json,sys,re; s=sys.stdin.read(); isj=s.strip().startswith("{"); msg可以实现。SSPanel（Ikuuu 所用的面板系统）的 `/user/checkin` 接口通常只返回本次签到获得的流量或签到状态，**不会返回账号当前的剩余/总流量**。
-
-要获取签到前后的总流量与剩余流量，需要在签到前后分别向 `/user` 用户中心页面发起一次 `GET` 请求，抓取 HTML 中的流量统计数据。
-
----
-
-### 修改方案
-
-在 `Run checkin` 步骤中增加一个解析 `/user` 页面的 Python 函数，并在执行 `check_one` 时记录签到前后的流量。
-
-#### 1. 核心解析逻辑
-SSPanel 的 `/user` 页面通常包含以下字段（或通过正则匹配文本）：
-* **今日已用 / 过去已用**
-* **剩余流量 / 总流量**（例如 `剩余: 12.34 GB`, `总计: 50.00 GB`）
-
-#### 2. 修改后的 `check_one` 脚本代码
-将 workflow 中的 `Run checkin` 步骤的 `run` 部分替换为以下增强逻辑：
-
-```bash
-          set -euo pipefail
-          RETRY="${RETRY:-2}"; RETRY_DELAY="${RETRY_DELAY:-2}"; CONNECT_TIMEOUT="${CONNECT_TIMEOUT:-10}"; MAX_TIME="${MAX_TIME:-30}"
-          BASE="${IKUUU_BASE_URL:-[https://ikuuu.co](https://ikuuu.co)}"; BASE="${BASE%/}"
           if [ -n "${IKUUU_COOKIES:-}" ]; then COOKIES=$(printf '%s\n' "$IKUUU_COOKIES");
           elif [ -n "${IKUUU_COOKIE:-}" ]; then COOKIES=$(printf '%s\n' "$IKUUU_COOKIE");
           else echo "overall_status=failed" >> "$GITHUB_OUTPUT"; echo "summary=No cookie configured" >> "$GITHUB_OUTPUT"; exit 0; fi
-          
+
           [ -n "${IKUUU_COOKIE:-}" ] && echo "::add-mask::${IKUUU_COOKIE}"
           [ -n "${IKUUU_COOKIES:-}" ] && echo "::add-mask::${IKUUU_COOKIES}"
-          
+
           normalized=$(printf '%s\n' "$COOKIES" \
             | tr -d '\r' \
             | awk 'BEGIN{RS=""; ORS="\n"} {gsub(/\n+/, " "); gsub(/[ \t]+/, " "); print}')
           mapfile -t COOKIE_LINES < <(printf '%s\n' "$normalized" | sed '/^[[:space:]]*$/d')
-          
           OK=0; FAIL=0; DETAILS=()
 
-          # 从 /user 页面抓取流量信息
           fetch_traffic() {
             local ck="$1"
             local html
@@ -149,7 +135,6 @@ SSPanel 的 `/user` 页面通常包含以下字段（或通过正则匹配文本
             python3 -c '
 import sys, re
 html = sys.stdin.read()
-# 匹配面板常见的流量格式（如：总流量 50.00 GB，剩余流量 45.20 GB）
 total = re.search(r"总[计共]?流量[^\d]*([\d\.]+\s*[KMGTP]?B)", html, re.I)
 unused = re.search(r"剩余流量[^\d]*([\d\.]+\s*[KMGTP]?B)", html, re.I)
 
@@ -180,10 +165,8 @@ else:
           check_one() {
             local ck="$1" idx="$2" http='' curl_code=0 RESP MSG RET tmpf
             
-            # 1. 签到前查询流量
             TRAFFIC_BEFORE=$(fetch_traffic "$ck")
 
-            # 2. 执行签到
             tmpf=$(mktemp)
             set +e
             http=$(curl -sS "${BASE}/user/checkin" \
@@ -205,7 +188,6 @@ else:
             MSG=$(python3 -c 'import json,sys,re; s=sys.stdin.read(); isj=s.strip().startswith("{"); msg=str(json.loads(s).get("msg","")) if isj else re.sub(r"\s+"," ",s).strip()[:120]; print(msg.replace("\n"," ").strip())' <<<"$RESP")
             MSG=$(sanitize_msg "$MSG")
 
-            # 3. 签到后查询流量
             TRAFFIC_AFTER=$(fetch_traffic "$ck")
 
             local is_success=0
@@ -229,7 +211,6 @@ else:
               failure_reason="返回ret=1但无流量信息，疑似Cookie失效"
             fi
 
-            # 拼接展示内容：包含前/后流量
             local traffic_info="[前: ${TRAFFIC_BEFORE} -> 后: ${TRAFFIC_AFTER}]"
             if [ "$is_success" -eq 1 ]; then
               OK=$((OK+1))
@@ -261,3 +242,55 @@ else:
             idx=0
             for d in "${DETAILS[@]}"; do idx=$((idx+1)); r=$(printf '%s' "$d" | awk '{print $2}'); m=$(printf '%s' "$d" | cut -d' ' -f3-); echo "| $idx | $r | $m |"; done
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mark failure
+        if: ${{ steps.decision.outputs.should_run == 'yes' && steps.run.outputs.overall_status != 'success' }}
+        run: exit 1
+
+      - name: Send failure notifications (optional)
+        if: ${{ steps.decision.outputs.should_run == 'yes' && steps.run.outputs.overall_status != 'success' }}
+        shell: bash
+        env:
+          SUMMARY: ${{ steps.run.outputs.summary }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          set -euo pipefail
+          MSG_TITLE="Ikuuu 签到失败告警"
+          MSG_BODY=$(printf '%s\n\n运行链接：%s' "${SUMMARY}" "${RUN_URL}")
+
+          sent_any=0
+
+          if [ -n "${TG_BOT_TOKEN:-}" ] && [ -n "${TG_CHAT_ID:-}" ]; then
+            payload=$(python3 -c "import json,os;print(json.dumps({'chat_id':os.environ.get('TG_CHAT_ID',''),'text':os.environ.get('MSG_TITLE','')+'\\n'+os.environ.get('MSG_BODY',''),'disable_web_page_preview':True}))")
+            curl -sS -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
+              -H 'Content-Type: application/json' \
+              --data-raw "$payload" || true
+            sent_any=1
+          fi
+
+          if [ -n "${FEISHU_WEBHOOK:-}" ]; then
+            payload=$(python3 -c "import json,os;print(json.dumps({'msg_type':'text','content':{'text':os.environ.get('MSG_TITLE','')+'\\n'+os.environ.get('MSG_BODY','')}}))")
+            curl -sS -X POST "$FEISHU_WEBHOOK" -H 'Content-Type: application/json' --data-raw "$payload" || true
+            sent_any=1
+          fi
+
+          if [ -n "${WECHAT_WEBHOOK:-}" ]; then
+            payload=$(python3 -c "import json,os;print(json.dumps({'msgtype':'text','text':{'content':os.environ.get('MSG_TITLE','')+'\\n'+os.environ.get('MSG_BODY','')}}))")
+            curl -sS -X POST "$WECHAT_WEBHOOK" -H 'Content-Type: application/json' --data-raw "$payload" || true
+            sent_any=1
+          fi
+
+          if [ -n "${DISCORD_WEBHOOK:-}" ]; then
+            payload=$(python3 -c "import json,os;print(json.dumps({'content':os.environ.get('MSG_TITLE','')+'\\n'+os.environ.get('MSG_BODY','')}))")
+            curl -sS -X POST "$DISCORD_WEBHOOK" -H 'Content-Type: application/json' --data-raw "$payload" || true
+            sent_any=1
+          fi
+
+          if [ "$sent_any" -eq 0 ]; then
+            echo "未配置任何通知通道（TG/飞书/企业微信/Discord）。"
+          fi
