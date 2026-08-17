@@ -132,7 +132,7 @@ jobs:
               --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" \
               -b "$ck" 2>/dev/null || printf '')
             
-            python3 -c '
+            python3 - << 'PYEOF' <<< "$html"
 import sys, re
 html = sys.stdin.read()
 total = re.search(r"总[计共]?流量[^\d]*([\d\.]+\s*[KMGTP]?B)", html, re.I)
@@ -145,7 +145,7 @@ if t_str != "未知" or u_str != "未知":
     print(f"剩余: {u_str} / 总计: {t_str}")
 else:
     print("未能解析流量")
-' <<< "$html"
+PYEOF
           }
 
           sanitize_msg() {
@@ -238,7 +238,7 @@ else:
             echo "- fail: $FAIL"
             echo
             echo "| # | result | message |"
-            echo "|---:|:---:|:---|"
+            echo "|---:|:---:|:---| "
             idx=0
             for d in "${DETAILS[@]}"; do idx=$((idx+1)); r=$(printf '%s' "$d" | awk '{print $2}'); m=$(printf '%s' "$d" | cut -d' ' -f3-); echo "| $idx | $r | $m |"; done
           } >> "$GITHUB_STEP_SUMMARY"
@@ -266,7 +266,7 @@ else:
           sent_any=0
 
           if [ -n "${TG_BOT_TOKEN:-}" ] && [ -n "${TG_CHAT_ID:-}" ]; then
-            payload=$(python3 -c "import json,os;print(json.dumps({'chat_id':os.environ.get('TG_CHAT_ID',''),'text':os.environ.get('MSG_TITLE','')+'\\n'+os.environ.get('MSG_BODY',''),'disable_web_page_preview':True}))")
+            payload=$(python3 -c "import json,os;print(json.dumps({'chat_id':os.environ.get('TG_CHAT_ID',''),'text':os.environ.get('MSG_TITLE','')+'\n'+os.environ.get('MSG_BODY',''),'disable_web_page_preview':True}))")
             curl -sS -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
               -H 'Content-Type: application/json' \
               --data-raw "$payload" || true
@@ -274,19 +274,19 @@ else:
           fi
 
           if [ -n "${FEISHU_WEBHOOK:-}" ]; then
-            payload=$(python3 -c "import json,os;print(json.dumps({'msg_type':'text','content':{'text':os.environ.get('MSG_TITLE','')+'\\n'+os.environ.get('MSG_BODY','')}}))")
+            payload=$(python3 -c "import json,os;print(json.dumps({'msg_type':'text','content':{'text':os.environ.get('MSG_TITLE','')+'\n'+os.environ.get('MSG_BODY','')}}))")
             curl -sS -X POST "$FEISHU_WEBHOOK" -H 'Content-Type: application/json' --data-raw "$payload" || true
             sent_any=1
           fi
 
           if [ -n "${WECHAT_WEBHOOK:-}" ]; then
-            payload=$(python3 -c "import json,os;print(json.dumps({'msgtype':'text','text':{'content':os.environ.get('MSG_TITLE','')+'\\n'+os.environ.get('MSG_BODY','')}}))")
+            payload=$(python3 -c "import json,os;print(json.dumps({'msgtype':'text','text':{'content':os.environ.get('MSG_TITLE','')+'\n'+os.environ.get('MSG_BODY','')}}))")
             curl -sS -X POST "$WECHAT_WEBHOOK" -H 'Content-Type: application/json' --data-raw "$payload" || true
             sent_any=1
           fi
 
           if [ -n "${DISCORD_WEBHOOK:-}" ]; then
-            payload=$(python3 -c "import json,os;print(json.dumps({'content':os.environ.get('MSG_TITLE','')+'\\n'+os.environ.get('MSG_BODY','')}))")
+            payload=$(python3 -c "import json,os;print(json.dumps({'content':os.environ.get('MSG_TITLE','')+'\n'+os.environ.get('MSG_BODY','')}))")
             curl -sS -X POST "$DISCORD_WEBHOOK" -H 'Content-Type: application/json' --data-raw "$payload" || true
             sent_any=1
           fi
